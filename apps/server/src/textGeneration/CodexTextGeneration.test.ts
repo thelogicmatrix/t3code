@@ -48,7 +48,6 @@ interface FakeCodexInput {
   exitCode?: number;
   stderr?: string;
   requireImage?: boolean;
-  requireHooksDisabled?: boolean;
   requireServiceTier?: string;
   requireReasoningEffort?: string;
   forbidReasoningEffort?: boolean;
@@ -65,7 +64,6 @@ interface FakeCodexInput {
 function makeFakeCodexBinary(dir: string, input: FakeCodexInput) {
   const check = JSON.stringify({
     requireImage: input.requireImage ?? false,
-    requireHooksDisabled: input.requireHooksDisabled ?? false,
     requireServiceTier: input.requireServiceTier ?? null,
     requireReasoningEffort: input.requireReasoningEffort ?? null,
     forbidReasoningEffort: input.forbidReasoningEffort ?? false,
@@ -106,7 +104,6 @@ function makeFakeCodexBinary(dir: string, input: FakeCodexInput) {
         "  process.exit(0);",
         "}",
         'const originalArgs = ` ${args.join(" ")} `;',
-        "const config = new Map();",
         "let outputPath = null;",
         "let seenImage = false;",
         'let seenServiceTier = "";',
@@ -120,21 +117,11 @@ function makeFakeCodexBinary(dir: string, input: FakeCodexInput) {
         "    index += 1;",
         '    const value = args[index] ?? "";',
         '    if (value.startsWith("developer_instructions=")) instructions = JSON.parse(value.slice("developer_instructions=".length));',
-        '    const [key, setting] = value.split("=");',
-        "    config.set(key, setting);",
         '    if (value.startsWith("service_tier=")) seenServiceTier = value;',
         '    if (value.startsWith("model_reasoning_effort=")) seenReasoningEffort = value;',
         '  } else if (args[index] === "--output-last-message") {',
         "    index += 1;",
         "    outputPath = args[index] ?? null;",
-        "  }",
-        "}",
-        // Codex applies feature toggles after config overrides, regardless of argv order.
-        "for (let index = 0; index < args.length; index += 1) {",
-        '  if (args[index] === "--enable") {',
-        '    config.set("features." + args[++index], "true");',
-        '  } else if (args[index].startsWith("--enable=")) {',
-        '    config.set("features." + args[index].slice("--enable=".length), "true");',
         "  }",
         "}",
         "const chunks = [];",
@@ -178,10 +165,6 @@ function makeFakeCodexBinary(dir: string, input: FakeCodexInput) {
         "}",
         "if (check.forbidArg !== null && originalArgs.includes(` ${check.forbidArg} `)) {",
         '  fail("forbidden arg: " + check.forbidArg, 9);',
-        "}",
-        "if (check.requireHooksDisabled &&",
-        '    ["features.codex_hooks", "features.hooks"].some((key) => config.get(key) !== "false")) {',
-        '  fail("user hooks are still enabled", 10);',
         "}",
         'if (check.requireImage && !seenImage) fail("missing --image input", 2);',
         "if (",
@@ -516,13 +499,13 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
     ),
   );
 
-  it.effect("generates titles with hooks off even when launch args enable both hook names", () =>
+  it.effect("keeps user hooks off over launch args that turn them on", () =>
     withFakeCodexEnv(
       {
         output: JSON.stringify({ title: "Hookless title" }),
-        launchArgs:
-          "--config features.codex_hooks=true --config features.hooks=true --enable hooks --enable=hooks --enable codex_hooks --enable=codex_hooks",
-        requireHooksDisabled: true,
+        launchArgs: "--config features.hooks=true --enable hooks",
+        requireArg: "--config features.codex_hooks=false --config features.hooks=false",
+        forbidArg: "--enable",
       },
       (textGeneration) =>
         Effect.gen(function* () {

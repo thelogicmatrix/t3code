@@ -62,14 +62,17 @@ const filterLaunchArgs = (launchArgs: string | undefined, allowed: LaunchArgFilt
   return kept;
 };
 
-export const codexExecLaunchArgs = (launchArgs?: string) =>
-  filterLaunchArgs(launchArgs, EXEC_FILTER).filter((arg, index, args) => {
-    // Feature enables override config assignments regardless of their argv order.
-    if (arg === "--enable=hooks" || arg === "--enable=codex_hooks") return false;
-    if (arg === "--enable" && (args[index + 1] === "hooks" || args[index + 1] === "codex_hooks"))
-      return false;
-    return args[index - 1] !== "--enable" || (arg !== "hooks" && arg !== "codex_hooks");
+const HOOK_FEATURES = new Set(["hooks", "codex_hooks"]);
+
+// Feature toggles beat config overrides, so a launch arg's hook enable would undo ours.
+export const codexExecLaunchArgs = (launchArgs?: string) => {
+  const args = filterLaunchArgs(launchArgs, EXEC_FILTER);
+  return args.filter((arg, index) => {
+    if (arg.startsWith("--enable=")) return !HOOK_FEATURES.has(arg.slice("--enable=".length));
+    if (arg === "--enable") return !HOOK_FEATURES.has(args[index + 1] ?? "");
+    return !(args[index - 1] === "--enable" && HOOK_FEATURES.has(arg));
   });
+};
 
 export const codexMcpListLaunchArgs = (launchArgs?: string) =>
   filterLaunchArgs(launchArgs, MCP_LIST_FILTER);
